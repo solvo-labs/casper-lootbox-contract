@@ -1,1 +1,1 @@
-# casper-lootbox-contract
+# casper-lootbox-contract (WIP)
