@@ -4,6 +4,7 @@ use casper_types::ApiError;
 #[derive(Clone, Copy)]
 pub enum Error {
     FatalError = 0,
+    AdminError = 1,
 }
 
 impl From<Error> for ApiError {
