@@ -5,14 +5,25 @@ use casper_contract::{
     contract_api::storage,
     unwrap_or_revert::UnwrapOrRevert,
 };
-use casper_types::{ U512, CLTyped, URef, bytesrepr::FromBytes };
+use casper_types::{ system::CallStackElement, U512, CLTyped, URef, bytesrepr::FromBytes };
 
+use crate::enums::Address;
 use crate::error::Error;
 use core::convert::TryInto;
 
 fn current_timestamp() -> U512 {
     let time: u64 = runtime::get_blocktime().into();
     time.into()
+}
+
+pub fn get_current_address() -> Address {
+    let call_stack_element = runtime::get_call_stack().into_iter().rev().next().unwrap_or_revert();
+    match call_stack_element {
+        CallStackElement::Session { account_hash } => Address::from(account_hash),
+        CallStackElement::StoredSession { account_hash, .. } => { Address::from(account_hash) }
+        CallStackElement::StoredContract { contract_package_hash: _, contract_hash } =>
+            Address::from(contract_hash),
+    }
 }
 
 pub fn get_key<T: FromBytes + CLTyped>(name: &str) -> T {
