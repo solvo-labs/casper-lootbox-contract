@@ -19,6 +19,7 @@ use casper_types::{
     U512,
     RuntimeArgs,
     runtime_args,
+    URef,
 };
 use casper_types_derive::{ CLTyped, FromBytes, ToBytes };
 
@@ -40,9 +41,11 @@ const ITEM_OWNERS: &str = "item_owners";
 const NFT_COLLECTION: &str = "nft_collection";
 const TOKEN_ID: &str = "token_id";
 const ITEM_NAME: &str = "item_name";
+const DEPOSITED_ITEM_COUNT: &str = "deposited_item_count";
 
 //entry points
 const ENTRY_POINT_ADD_ITEM: &str = "add_item";
+const ENTRY_POINT_INIT: &str = "init";
 
 #[derive(Clone, Debug, CLTyped, ToBytes, FromBytes)]
 pub struct Item {
@@ -55,11 +58,6 @@ pub struct Item {
 #[no_mangle]
 pub extern "C" fn add_item() {
     check_admin_account();
-    let items: Vec<Item> = utils::read_from(ITEMS);
-
-    if items.len() == 0 {
-        storage::new_dictionary(ITEM_OWNERS).unwrap_or_default();
-    }
 
     let token_id: u64 = runtime::get_named_arg(TOKEN_ID);
     let item_name: String = runtime::get_named_arg(ITEM_NAME);
@@ -67,7 +65,7 @@ pub extern "C" fn add_item() {
     let contract_address = get_current_address();
     let caller: AccountHash = runtime::get_caller();
     let collection: Key = utils::read_from(NFT_COLLECTION);
-    let mut items: Vec<Item> = utils::read_from(ITEMS);
+    let deposited_item_count: u64 = utils::read_from(DEPOSITED_ITEM_COUNT);
 
     let collection_hash: ContractHash = collection.into_hash().map(ContractHash::new).unwrap();
 
@@ -78,7 +76,24 @@ pub extern "C" fn add_item() {
     // check owner is caller
     transfer(collection_hash, caller.into(), contract_address.into(), token_id);
 
-    items.push(Item { id: items.len().into(), name: item_name, rarity: U256::zero() })
+    let items_dict: URef = *runtime::get_key(ITEMS).unwrap().as_uref().unwrap();
+
+    storage::dictionary_put(items_dict, &deposited_item_count.to_string(), Item {
+        id: deposited_item_count.into(),
+        name: item_name,
+        rarity: U256::zero(),
+    });
+
+    runtime::put_key(
+        DEPOSITED_ITEM_COUNT,
+        storage::new_uref(deposited_item_count.add(1u64)).into()
+    );
+}
+
+#[no_mangle]
+pub extern "C" fn init() {
+    storage::new_dictionary(ITEM_OWNERS).unwrap_or_default();
+    storage::new_dictionary(ITEMS).unwrap_or_default();
 }
 
 #[no_mangle]
@@ -89,15 +104,14 @@ pub extern "C" fn call() {
     let asset: String = runtime::get_named_arg(ASSET);
     let nft_collection: Key = runtime::get_named_arg(NFT_COLLECTION);
     let lootbox_price: U512 = runtime::get_named_arg(LOOTBOX_PRICE);
-    let items_per_lootbox: U256 = runtime::get_named_arg(ITEMS_PER_LOOTBOX);
-    let max_lootboxes: U256 = runtime::get_named_arg(MAX_LOOTBOXES);
-    let max_items: U256 = runtime::get_named_arg(MAX_ITEMS);
+    let items_per_lootbox: u64 = runtime::get_named_arg(ITEMS_PER_LOOTBOX);
+    let max_lootboxes: u64 = runtime::get_named_arg(MAX_LOOTBOXES);
+    let max_items: u64 = runtime::get_named_arg(MAX_ITEMS);
 
     // init
-    let item_count: U256 = U256::zero();
-    let lootbox_count: U256 = U256::zero();
-
-    let items: Vec<Item> = [].to_vec();
+    let item_count: u64 = 0u64;
+    let lootbox_count: u64 = 0u64;
+    let deposited_item_count: u64 = 0u64;
 
     //utils
     let owner: AccountHash = runtime::get_caller();
@@ -119,7 +133,10 @@ pub extern "C" fn call() {
     named_keys.insert(LOOTBOX_COUNT.to_string(), storage::new_uref(lootbox_count.clone()).into());
     named_keys.insert(MAX_ITEMS.to_string(), storage::new_uref(max_items.clone()).into());
     named_keys.insert(ITEM_COUNT.to_string(), storage::new_uref(item_count.clone()).into());
-    named_keys.insert(ITEMS.to_string(), storage::new_uref(items.clone()).into());
+    named_keys.insert(
+        DEPOSITED_ITEM_COUNT.to_string(),
+        storage::new_uref(deposited_item_count.clone()).into()
+    );
 
     // entrypoints
     let add_item_entry_point = EntryPoint::new(
@@ -130,8 +147,17 @@ pub extern "C" fn call() {
         EntryPointType::Contract
     );
 
+    let init_entry_point = EntryPoint::new(
+        ENTRY_POINT_INIT,
+        vec![],
+        CLType::URef,
+        EntryPointAccess::Public,
+        EntryPointType::Contract
+    );
+
     let mut entry_points = EntryPoints::new();
     entry_points.add_entry_point(add_item_entry_point);
+    entry_points.add_entry_point(init_entry_point);
 
     // contract design
     let str1 = name.clone() + "_" + &now.to_string();
@@ -150,6 +176,8 @@ pub extern "C" fn call() {
     );
 
     runtime::put_key(&contract_hash_text.to_string(), contract_hash.into());
+
+    runtime::call_contract::<()>(contract_hash, ENTRY_POINT_INIT, runtime_args! {});
 }
 
 pub fn check_admin_account() {
