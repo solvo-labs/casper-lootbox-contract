@@ -6,3 +6,4 @@ mod error;
 mod utils;
 mod lootbox;
 mod enums;
+mod events;

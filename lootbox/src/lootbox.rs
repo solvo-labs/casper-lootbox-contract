@@ -1,8 +1,12 @@
 use core::{ ops::{ Add, Sub, Mul, Div }, char::MAX };
 
-use alloc::{ string::{ String, ToString }, vec::Vec, vec, boxed::Box };
+use alloc::{ string::{ String, ToString }, vec::Vec, vec };
 
-use crate::{ error::Error, utils::{ get_key, get_current_address, self, read_from } };
+use crate::{
+    error::Error,
+    utils::{ get_key, get_current_address, self },
+    events::{ emit, LootboxEvent },
+};
 
 use casper_types::{
     account::AccountHash,
@@ -25,6 +29,7 @@ use casper_types_derive::{ CLTyped, FromBytes, ToBytes };
 
 use casper_contract::contract_api::{ runtime, storage, system, account };
 use casper_contract::unwrap_or_revert::UnwrapOrRevert;
+use tiny_keccak::{ Sha3, Hasher };
 
 const OWNER: &str = "owner";
 const NAME: &str = "name";
@@ -46,12 +51,14 @@ const DEPOSITED_ITEM_COUNT: &str = "deposited_item_count";
 //entry points
 const ENTRY_POINT_ADD_ITEM: &str = "add_item";
 const ENTRY_POINT_INIT: &str = "init";
+const ENTRY_POINT_PURCHASE: &str = "purchase";
 
 #[derive(Clone, Debug, CLTyped, ToBytes, FromBytes)]
 pub struct Item {
-    pub id: U256,
+    pub id: u64,
     pub name: String,
-    pub rarity: U256,
+    pub rarity: u64,
+    pub token_id: u64,
 }
 
 // admin function
@@ -81,13 +88,61 @@ pub extern "C" fn add_item() {
     storage::dictionary_put(items_dict, &deposited_item_count.to_string(), Item {
         id: deposited_item_count.into(),
         name: item_name,
-        rarity: U256::zero(),
+        rarity: 0,
+        token_id,
     });
 
     runtime::put_key(
         DEPOSITED_ITEM_COUNT,
         storage::new_uref(deposited_item_count.add(1u64)).into()
     );
+}
+
+#[no_mangle]
+pub extern "C" fn purchase() {
+    let lootbox_count: u64 = utils::read_from(LOOTBOX_COUNT);
+    let max_lootboxes: u64 = utils::read_from(MAX_LOOTBOXES);
+
+    if lootbox_count > max_lootboxes {
+        runtime::revert(Error::LootboxLimit);
+    }
+
+    let items_per_lootbox: u64 = utils::read_from(ITEMS_PER_LOOTBOX);
+    let mut item_count: u64 = utils::read_from(ITEM_COUNT);
+    let max_items: u64 = utils::read_from(MAX_ITEMS);
+
+    let items = *runtime::get_key(ITEMS).unwrap().as_uref().unwrap();
+    let item_owners = *runtime::get_key(ITEM_OWNERS).unwrap().as_uref().unwrap();
+    let caller: AccountHash = runtime::get_caller();
+
+    for i in 0..items_per_lootbox {
+        if item_count >= max_items {
+            break;
+        }
+
+        let item_id = get_random_item_id(max_items);
+
+        let data: Item = storage
+            ::dictionary_get::<Item>(items, &item_id.to_string())
+            .unwrap()
+            .unwrap();
+
+        storage::dictionary_put(items, &item_id.to_string(), Item {
+            id: data.id,
+            name: data.name,
+            rarity: i,
+            token_id: data.token_id,
+        });
+
+        storage::dictionary_put(item_owners, &item_id.to_string(), caller);
+
+        item_count += 1;
+    }
+
+    runtime::put_key(ITEM_COUNT, storage::new_uref(item_count).into());
+    runtime::put_key(LOOTBOX_COUNT, storage::new_uref(lootbox_count.add(1u64)).into());
+
+    emit(&&(LootboxEvent::Purchase { caller, lootbox_count, item_count }))
 }
 
 #[no_mangle]
@@ -155,9 +210,18 @@ pub extern "C" fn call() {
         EntryPointType::Contract
     );
 
+    let purchase_entry_point = EntryPoint::new(
+        ENTRY_POINT_PURCHASE,
+        vec![],
+        CLType::URef,
+        EntryPointAccess::Public,
+        EntryPointType::Contract
+    );
+
     let mut entry_points = EntryPoints::new();
     entry_points.add_entry_point(add_item_entry_point);
     entry_points.add_entry_point(init_entry_point);
+    entry_points.add_entry_point(purchase_entry_point);
 
     // contract design
     let str1 = name.clone() + "_" + &now.to_string();
@@ -188,7 +252,30 @@ pub fn check_admin_account() {
     }
 }
 
-pub fn get_random_item_id() {}
+fn bytes_to_u64(bytes: &[u8]) -> u64 {
+    let mut result: u64 = 0;
+    for i in 0..8 {
+        result |= (bytes[i] as u64) << ((7 - i) * 8);
+    }
+    result
+}
+
+pub fn get_random_item_id(max_items: u64) -> u64 {
+    let now: u64 = runtime::get_blocktime().into();
+    let mut sha3 = Sha3::v256();
+    let input = now.to_string();
+
+    sha3.update(input.as_ref());
+
+    let mut hash_bytes = [0u8; 32]; // SHA-3-256 for 32 byte
+    sha3.finalize(&mut hash_bytes);
+
+    let hash_number = bytes_to_u64(&hash_bytes);
+
+    let item_id = hash_number % max_items;
+
+    return item_id;
+}
 
 pub fn get_approved(contract_hash: ContractHash, owner: Key, token_id: u64) -> Option<Key> {
     runtime::call_contract::<Option<Key>>(
