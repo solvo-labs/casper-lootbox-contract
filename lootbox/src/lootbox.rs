@@ -47,11 +47,13 @@ const NFT_COLLECTION: &str = "nft_collection";
 const TOKEN_ID: &str = "token_id";
 const ITEM_NAME: &str = "item_name";
 const DEPOSITED_ITEM_COUNT: &str = "deposited_item_count";
+const ITEM_INDEX: &str = "item_index";
 
 //entry points
 const ENTRY_POINT_ADD_ITEM: &str = "add_item";
 const ENTRY_POINT_INIT: &str = "init";
 const ENTRY_POINT_PURCHASE: &str = "purchase";
+const ENTRY_POINT_CLAIM: &str = "claim";
 
 #[derive(Clone, Debug, CLTyped, ToBytes, FromBytes)]
 pub struct Item {
@@ -146,6 +148,26 @@ pub extern "C" fn purchase() {
 }
 
 #[no_mangle]
+pub extern "C" fn claim() {
+    let item_index: u64 = utils::read_from(ITEM_INDEX);
+
+    let item_owners = *runtime::get_key(ITEM_OWNERS).unwrap().as_uref().unwrap();
+
+    storage
+        ::dictionary_get::<AccountHash>(item_owners, &item_index.to_string())
+        .unwrap()
+        .unwrap_or_revert_with(Error::ClaimNotFound);
+
+    let collection: Key = utils::read_from(NFT_COLLECTION);
+    let collection_hash: ContractHash = collection.into_hash().map(ContractHash::new).unwrap();
+
+    let contract_address = get_current_address();
+    let caller: AccountHash = runtime::get_caller();
+
+    transfer(collection_hash, contract_address.into(), caller.into(), item_index)
+}
+
+#[no_mangle]
 pub extern "C" fn init() {
     storage::new_dictionary(ITEM_OWNERS).unwrap_or_default();
     storage::new_dictionary(ITEMS).unwrap_or_default();
@@ -218,10 +240,19 @@ pub extern "C" fn call() {
         EntryPointType::Contract
     );
 
+    let claim_entry_point = EntryPoint::new(
+        ENTRY_POINT_CLAIM,
+        vec![Parameter::new(ITEM_INDEX, CLType::U64)],
+        CLType::URef,
+        EntryPointAccess::Public,
+        EntryPointType::Contract
+    );
+
     let mut entry_points = EntryPoints::new();
     entry_points.add_entry_point(add_item_entry_point);
     entry_points.add_entry_point(init_entry_point);
     entry_points.add_entry_point(purchase_entry_point);
+    entry_points.add_entry_point(claim_entry_point);
 
     // contract design
     let str1 = name.clone() + "_" + &now.to_string();

@@ -7,6 +7,7 @@ pub enum Error {
     AdminError = 1,
     NotApproved = 2,
     LootboxLimit = 3,
+    ClaimNotFound = 4,
 }
 
 impl From<Error> for ApiError {
