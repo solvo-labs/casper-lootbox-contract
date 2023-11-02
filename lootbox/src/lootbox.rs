@@ -1,4 +1,4 @@
-use core::{ ops::{ Add, Sub, Mul, Div }, char::MAX };
+use core::ops::Add;
 
 use alloc::{ string::{ String, ToString }, vec::Vec, vec };
 
@@ -10,7 +10,6 @@ use crate::{
 
 use casper_types::{
     account::AccountHash,
-    U256,
     EntryPoint,
     Key,
     ContractHash,
@@ -24,10 +23,11 @@ use casper_types::{
     RuntimeArgs,
     runtime_args,
     URef,
+    CLValue,
 };
 use casper_types_derive::{ CLTyped, FromBytes, ToBytes };
 
-use casper_contract::contract_api::{ runtime, storage, system, account };
+use casper_contract::contract_api::{ runtime, storage, system };
 use casper_contract::unwrap_or_revert::UnwrapOrRevert;
 use tiny_keccak::{ Sha3, Hasher };
 
@@ -55,6 +55,8 @@ const ENTRY_POINT_ADD_ITEM: &str = "add_item";
 const ENTRY_POINT_INIT: &str = "init";
 const ENTRY_POINT_PURCHASE: &str = "purchase";
 const ENTRY_POINT_CLAIM: &str = "claim";
+const ENTRY_POINT_GET_PRICE: &str = "get_price";
+const ENTRY_POINT_GET_PURSE: &str = "get_purse";
 
 #[derive(Clone, Debug, CLTyped, ToBytes, FromBytes)]
 pub struct Item {
@@ -193,6 +195,27 @@ pub extern "C" fn claim() {
 }
 
 #[no_mangle]
+pub extern "C" fn get_price() {
+    let price: U512 = utils::read_from(LOOTBOX_PRICE);
+
+    runtime::ret(CLValue::from_t(price).unwrap_or_revert());
+}
+
+#[no_mangle]
+pub extern "C" fn get_purse() {
+    let raffle_purse = match runtime::get_key(PURSE) {
+        Some(purse_key) => purse_key.into_uref().unwrap_or_revert(),
+        None => {
+            let new_purse = system::create_purse();
+            runtime::put_key(PURSE, new_purse.into());
+            new_purse
+        }
+    };
+
+    runtime::ret(CLValue::from_t(raffle_purse.into_add()).unwrap_or_revert());
+}
+
+#[no_mangle]
 pub extern "C" fn init() {
     storage::new_dictionary(ITEM_OWNERS).unwrap_or_default();
     storage::new_dictionary(ITEMS).unwrap_or_default();
@@ -273,11 +296,29 @@ pub extern "C" fn call() {
         EntryPointType::Contract
     );
 
+    let get_price_entry_point = EntryPoint::new(
+        ENTRY_POINT_GET_PRICE,
+        vec![],
+        CLType::U512,
+        EntryPointAccess::Public,
+        EntryPointType::Contract
+    );
+
+    let get_purse_entry_point = EntryPoint::new(
+        ENTRY_POINT_GET_PURSE,
+        vec![],
+        CLType::URef,
+        EntryPointAccess::Public,
+        EntryPointType::Contract
+    );
+
     let mut entry_points = EntryPoints::new();
     entry_points.add_entry_point(add_item_entry_point);
     entry_points.add_entry_point(init_entry_point);
     entry_points.add_entry_point(purchase_entry_point);
     entry_points.add_entry_point(claim_entry_point);
+    entry_points.add_entry_point(get_price_entry_point);
+    entry_points.add_entry_point(get_purse_entry_point);
 
     // contract design
     let str1 = name.clone() + "_" + &now.to_string();

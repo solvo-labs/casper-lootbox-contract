@@ -2,4 +2,5 @@
 
 members = [
     "lootbox",
+    "lootbox_deposit_contract"
 ]

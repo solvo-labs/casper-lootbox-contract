@@ -1,4 +1,4 @@
-ALL_CONTRACTS = lootbox
+ALL_CONTRACTS = lootbox lootbox_deposit_contract
 CONTRACT_TARGET_DIR = target/wasm32-unknown-unknown/release
 PINNED_TOOLCHAIN := $(shell cat rust-toolchain)
 
