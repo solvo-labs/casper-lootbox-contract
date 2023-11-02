@@ -120,20 +120,10 @@ pub extern "C" fn purchase() {
     let items_per_lootbox: u64 = utils::read_from(ITEMS_PER_LOOTBOX);
     let mut item_count: u64 = utils::read_from(ITEM_COUNT);
     let max_items: u64 = utils::read_from(MAX_ITEMS);
-    let amount: U512 = utils::read_from(LOOTBOX_PRICE);
 
     let items = *runtime::get_key(ITEMS).unwrap().as_uref().unwrap();
     let item_owners = *runtime::get_key(ITEM_OWNERS).unwrap().as_uref().unwrap();
     let caller: AccountHash = runtime::get_caller();
-
-    let purse = match runtime::get_key(PURSE) {
-        Some(purse_key) => purse_key.into_uref().unwrap_or_revert(),
-        None => {
-            let new_purse = system::create_purse();
-            runtime::put_key(PURSE, new_purse.into());
-            new_purse
-        }
-    };
 
     for i in 0..items_per_lootbox {
         if item_count >= max_items {
@@ -161,10 +151,6 @@ pub extern "C" fn purchase() {
 
     runtime::put_key(ITEM_COUNT, storage::new_uref(item_count).into());
     runtime::put_key(LOOTBOX_COUNT, storage::new_uref(lootbox_count.add(1u64)).into());
-
-    // system
-    //     ::transfer_from_purse_to_purse(account::get_main_purse(), purse, amount, None)
-    //     .unwrap_or_revert();
 
     emit(&&(LootboxEvent::Purchase { caller, lootbox_count, item_count }))
 }
