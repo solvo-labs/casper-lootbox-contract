@@ -8,6 +8,7 @@ pub enum Error {
     NotApproved = 2,
     LootboxLimit = 3,
     ClaimNotFound = 4,
+    MaxItemCount = 5,
 }
 
 impl From<Error> for ApiError {

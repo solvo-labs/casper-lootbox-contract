@@ -48,6 +48,7 @@ const TOKEN_ID: &str = "token_id";
 const ITEM_NAME: &str = "item_name";
 const DEPOSITED_ITEM_COUNT: &str = "deposited_item_count";
 const ITEM_INDEX: &str = "item_index";
+const PURSE: &str = "purse";
 
 //entry points
 const ENTRY_POINT_ADD_ITEM: &str = "add_item";
@@ -58,9 +59,9 @@ const ENTRY_POINT_CLAIM: &str = "claim";
 #[derive(Clone, Debug, CLTyped, ToBytes, FromBytes)]
 pub struct Item {
     pub id: u64,
-    pub name: String,
     pub rarity: u64,
     pub token_id: u64,
+    pub name: String,
 }
 
 // admin function
@@ -75,6 +76,11 @@ pub extern "C" fn add_item() {
     let caller: AccountHash = runtime::get_caller();
     let collection: Key = utils::read_from(NFT_COLLECTION);
     let deposited_item_count: u64 = utils::read_from(DEPOSITED_ITEM_COUNT);
+    let max_items: u64 = utils::read_from(MAX_ITEMS);
+
+    if deposited_item_count >= max_items {
+        runtime::revert(Error::MaxItemCount);
+    }
 
     let collection_hash: ContractHash = collection.into_hash().map(ContractHash::new).unwrap();
 
@@ -89,9 +95,9 @@ pub extern "C" fn add_item() {
 
     storage::dictionary_put(items_dict, &deposited_item_count.to_string(), Item {
         id: deposited_item_count.into(),
-        name: item_name,
         rarity: 0,
         token_id,
+        name: item_name,
     });
 
     runtime::put_key(
@@ -112,10 +118,20 @@ pub extern "C" fn purchase() {
     let items_per_lootbox: u64 = utils::read_from(ITEMS_PER_LOOTBOX);
     let mut item_count: u64 = utils::read_from(ITEM_COUNT);
     let max_items: u64 = utils::read_from(MAX_ITEMS);
+    let amount: U512 = utils::read_from(LOOTBOX_PRICE);
 
     let items = *runtime::get_key(ITEMS).unwrap().as_uref().unwrap();
     let item_owners = *runtime::get_key(ITEM_OWNERS).unwrap().as_uref().unwrap();
     let caller: AccountHash = runtime::get_caller();
+
+    let purse = match runtime::get_key(PURSE) {
+        Some(purse_key) => purse_key.into_uref().unwrap_or_revert(),
+        None => {
+            let new_purse = system::create_purse();
+            runtime::put_key(PURSE, new_purse.into());
+            new_purse
+        }
+    };
 
     for i in 0..items_per_lootbox {
         if item_count >= max_items {
@@ -131,18 +147,22 @@ pub extern "C" fn purchase() {
 
         storage::dictionary_put(items, &item_id.to_string(), Item {
             id: data.id,
-            name: data.name,
             rarity: i,
             token_id: data.token_id,
+            name: data.name,
         });
 
-        storage::dictionary_put(item_owners, &item_id.to_string(), caller);
+        storage::dictionary_put(item_owners, &data.id.to_string(), caller);
 
         item_count += 1;
     }
 
     runtime::put_key(ITEM_COUNT, storage::new_uref(item_count).into());
     runtime::put_key(LOOTBOX_COUNT, storage::new_uref(lootbox_count.add(1u64)).into());
+
+    // system
+    //     ::transfer_from_purse_to_purse(account::get_main_purse(), purse, amount, None)
+    //     .unwrap_or_revert();
 
     emit(&&(LootboxEvent::Purchase { caller, lootbox_count, item_count }))
 }
@@ -153,18 +173,23 @@ pub extern "C" fn claim() {
 
     let item_owners = *runtime::get_key(ITEM_OWNERS).unwrap().as_uref().unwrap();
 
-    storage
+    let to_account = storage
         ::dictionary_get::<AccountHash>(item_owners, &item_index.to_string())
         .unwrap()
         .unwrap_or_revert_with(Error::ClaimNotFound);
+
+    let items = *runtime::get_key(ITEMS).unwrap().as_uref().unwrap();
+    let data: Item = storage
+        ::dictionary_get::<Item>(items, &item_index.to_string())
+        .unwrap()
+        .unwrap();
 
     let collection: Key = utils::read_from(NFT_COLLECTION);
     let collection_hash: ContractHash = collection.into_hash().map(ContractHash::new).unwrap();
 
     let contract_address = get_current_address();
-    let caller: AccountHash = runtime::get_caller();
 
-    transfer(collection_hash, contract_address.into(), caller.into(), item_index)
+    transfer(collection_hash, contract_address.into(), Key::Account(to_account), data.token_id)
 }
 
 #[no_mangle]
