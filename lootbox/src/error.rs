@@ -9,6 +9,7 @@ pub enum Error {
     LootboxLimit = 3,
     ClaimNotFound = 4,
     MaxItemCount = 5,
+    ItemNotFound = 6,
 }
 
 impl From<Error> for ApiError {

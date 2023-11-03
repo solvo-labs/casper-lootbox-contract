@@ -49,6 +49,7 @@ const ITEM_NAME: &str = "item_name";
 const DEPOSITED_ITEM_COUNT: &str = "deposited_item_count";
 const ITEM_INDEX: &str = "item_index";
 const PURSE: &str = "purse";
+const RARITY: &str = "rarity";
 
 //entry points
 const ENTRY_POINT_ADD_ITEM: &str = "add_item";
@@ -57,6 +58,7 @@ const ENTRY_POINT_PURCHASE: &str = "purchase";
 const ENTRY_POINT_CLAIM: &str = "claim";
 const ENTRY_POINT_GET_PRICE: &str = "get_price";
 const ENTRY_POINT_GET_PURSE: &str = "get_purse";
+const ENTRY_POINT_SET_RARITY: &str = "set_rarity";
 
 #[derive(Clone, Debug, CLTyped, ToBytes, FromBytes)]
 pub struct Item {
@@ -157,7 +159,7 @@ pub extern "C" fn purchase() {
 
 #[no_mangle]
 pub extern "C" fn claim() {
-    let item_index: u64 = utils::read_from(ITEM_INDEX);
+    let item_index: u64 = runtime::get_named_arg(ITEM_INDEX);
 
     let item_owners = *runtime::get_key(ITEM_OWNERS).unwrap().as_uref().unwrap();
 
@@ -205,6 +207,26 @@ pub extern "C" fn get_purse() {
 pub extern "C" fn init() {
     storage::new_dictionary(ITEM_OWNERS).unwrap_or_default();
     storage::new_dictionary(ITEMS).unwrap_or_default();
+}
+
+#[no_mangle]
+pub extern "C" fn set_rarity() {
+    check_admin_account();
+    let item_index: u64 = runtime::get_named_arg(ITEM_INDEX);
+    let rarity: u64 = runtime::get_named_arg(RARITY);
+
+    let items = *runtime::get_key(ITEMS).unwrap().as_uref().unwrap();
+    let item: Item = storage
+        ::dictionary_get::<Item>(items, &item_index.to_string())
+        .unwrap()
+        .unwrap_or_revert_with(Error::ItemNotFound);
+
+    storage::dictionary_put(items, &item_index.to_string(), Item {
+        id: item.id,
+        rarity,
+        token_id: item.token_id,
+        name: item.name,
+    });
 }
 
 #[no_mangle]
@@ -298,6 +320,14 @@ pub extern "C" fn call() {
         EntryPointType::Contract
     );
 
+    let set_rarity_entry_point = EntryPoint::new(
+        ENTRY_POINT_SET_RARITY,
+        vec![Parameter::new(ITEM_INDEX, CLType::U64), Parameter::new(RARITY, CLType::U64)],
+        CLType::URef,
+        EntryPointAccess::Public,
+        EntryPointType::Contract
+    );
+
     let mut entry_points = EntryPoints::new();
     entry_points.add_entry_point(add_item_entry_point);
     entry_points.add_entry_point(init_entry_point);
@@ -305,6 +335,7 @@ pub extern "C" fn call() {
     entry_points.add_entry_point(claim_entry_point);
     entry_points.add_entry_point(get_price_entry_point);
     entry_points.add_entry_point(get_purse_entry_point);
+    entry_points.add_entry_point(set_rarity_entry_point);
 
     // contract design
     let str1 = name.clone() + "_" + &now.to_string();
