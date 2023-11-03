@@ -59,6 +59,7 @@ const ENTRY_POINT_CLAIM: &str = "claim";
 const ENTRY_POINT_GET_PRICE: &str = "get_price";
 const ENTRY_POINT_GET_PURSE: &str = "get_purse";
 const ENTRY_POINT_SET_RARITY: &str = "set_rarity";
+const ENTRY_POINT_WITHDRAW: &str = "withdraw";
 
 #[derive(Clone, Debug, CLTyped, ToBytes, FromBytes)]
 pub struct Item {
@@ -230,6 +231,18 @@ pub extern "C" fn set_rarity() {
 }
 
 #[no_mangle]
+pub extern "C" fn withdraw() {
+    check_admin_account();
+
+    let key: Key = runtime::get_key(PURSE).unwrap_or_revert();
+    let contract_purse: URef = key.into_uref().unwrap_or_revert();
+    let owner: AccountHash = runtime::get_caller();
+    let balance: U512 = system::get_purse_balance(contract_purse).unwrap_or_revert();
+
+    system::transfer_from_purse_to_account(contract_purse, owner, balance, None).unwrap();
+}
+
+#[no_mangle]
 pub extern "C" fn call() {
     //constructor
     let name: String = runtime::get_named_arg(NAME);
@@ -328,6 +341,14 @@ pub extern "C" fn call() {
         EntryPointType::Contract
     );
 
+    let withdraw_entry_point = EntryPoint::new(
+        ENTRY_POINT_WITHDRAW,
+        vec![],
+        CLType::URef,
+        EntryPointAccess::Public,
+        EntryPointType::Contract
+    );
+
     let mut entry_points = EntryPoints::new();
     entry_points.add_entry_point(add_item_entry_point);
     entry_points.add_entry_point(init_entry_point);
@@ -336,6 +357,7 @@ pub extern "C" fn call() {
     entry_points.add_entry_point(get_price_entry_point);
     entry_points.add_entry_point(get_purse_entry_point);
     entry_points.add_entry_point(set_rarity_entry_point);
+    entry_points.add_entry_point(withdraw_entry_point);
 
     // contract design
     let str1 = name.clone() + "_" + &now.to_string();
