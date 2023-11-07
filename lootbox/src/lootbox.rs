@@ -50,6 +50,7 @@ const DEPOSITED_ITEM_COUNT: &str = "deposited_item_count";
 const ITEM_INDEX: &str = "item_index";
 const PURSE: &str = "purse";
 const RARITY: &str = "rarity";
+const STORAGE_KEY: &str = "storage_key";
 
 //entry points
 const ENTRY_POINT_ADD_ITEM: &str = "add_item";
@@ -253,6 +254,7 @@ pub extern "C" fn call() {
     let items_per_lootbox: u64 = runtime::get_named_arg(ITEMS_PER_LOOTBOX);
     let max_lootboxes: u64 = runtime::get_named_arg(MAX_LOOTBOXES);
     let max_items: u64 = runtime::get_named_arg(MAX_ITEMS);
+    let storage_key: ContractHash = runtime::get_named_arg(STORAGE_KEY);
 
     // init
     let item_count: u64 = 0u64;
@@ -283,6 +285,8 @@ pub extern "C" fn call() {
         DEPOSITED_ITEM_COUNT.to_string(),
         storage::new_uref(deposited_item_count.clone()).into()
     );
+
+    named_keys.insert(STORAGE_KEY.to_string(), storage::new_uref(storage_key.clone()).into());
 
     // entrypoints
     let add_item_entry_point = EntryPoint::new(
@@ -378,6 +382,14 @@ pub extern "C" fn call() {
     runtime::put_key(&contract_hash_text.to_string(), contract_hash.into());
 
     runtime::call_contract::<()>(contract_hash, ENTRY_POINT_INIT, runtime_args! {});
+
+    runtime::call_contract::<()>(
+        storage_key,
+        "insert",
+        runtime_args! {
+        "data" => contract_hash.to_string(),
+    }
+    )
 }
 
 pub fn check_admin_account() {
