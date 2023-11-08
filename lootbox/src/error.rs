@@ -10,6 +10,7 @@ pub enum Error {
     ClaimNotFound = 4,
     MaxItemCount = 5,
     ItemNotFound = 6,
+    RarityLevelNotFound = 7,
 }
 
 impl From<Error> for ApiError {

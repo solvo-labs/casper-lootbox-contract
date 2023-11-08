@@ -77,6 +77,11 @@ pub extern "C" fn add_item() {
 
     let token_id: u64 = runtime::get_named_arg(TOKEN_ID);
     let item_name: String = runtime::get_named_arg(ITEM_NAME);
+    let rarity: u64 = runtime::get_named_arg(RARITY);
+
+    if rarity > 2 {
+        runtime::revert(Error::RarityLevelNotFound);
+    }
 
     let contract_address = get_current_address();
     let caller: AccountHash = runtime::get_caller();
@@ -101,7 +106,7 @@ pub extern "C" fn add_item() {
 
     storage::dictionary_put(items_dict, &deposited_item_count.to_string(), Item {
         id: deposited_item_count.into(),
-        rarity: 0,
+        rarity,
         token_id,
         name: item_name,
     });
@@ -125,30 +130,17 @@ pub extern "C" fn purchase() {
     let mut item_count: u64 = utils::read_from(ITEM_COUNT);
     let max_items: u64 = utils::read_from(MAX_ITEMS);
 
-    let items = *runtime::get_key(ITEMS).unwrap().as_uref().unwrap();
     let item_owners = *runtime::get_key(ITEM_OWNERS).unwrap().as_uref().unwrap();
     let caller: AccountHash = runtime::get_caller();
 
-    for i in 0..items_per_lootbox {
+    for _i in 0..items_per_lootbox {
         if item_count >= max_items {
             break;
         }
 
         let item_id = get_random_item_id(max_items);
 
-        let data: Item = storage
-            ::dictionary_get::<Item>(items, &item_id.to_string())
-            .unwrap()
-            .unwrap();
-
-        storage::dictionary_put(items, &item_id.to_string(), Item {
-            id: data.id,
-            rarity: i,
-            token_id: data.token_id,
-            name: data.name,
-        });
-
-        storage::dictionary_put(item_owners, &data.id.to_string(), caller);
+        storage::dictionary_put(item_owners, &item_id.to_string(), caller);
 
         item_count += 1;
     }
@@ -170,7 +162,7 @@ pub extern "C" fn claim() {
         .unwrap()
         .unwrap_or_revert_with(Error::ClaimNotFound);
 
-    let items = *runtime::get_key(ITEMS).unwrap().as_uref().unwrap();
+    let items: URef = *runtime::get_key(ITEMS).unwrap().as_uref().unwrap();
     let data: Item = storage
         ::dictionary_get::<Item>(items, &item_index.to_string())
         .unwrap()
@@ -216,6 +208,10 @@ pub extern "C" fn set_rarity() {
     check_admin_account();
     let item_index: u64 = runtime::get_named_arg(ITEM_INDEX);
     let rarity: u64 = runtime::get_named_arg(RARITY);
+
+    if rarity > 2 {
+        runtime::revert(Error::RarityLevelNotFound);
+    }
 
     let items = *runtime::get_key(ITEMS).unwrap().as_uref().unwrap();
     let item: Item = storage
@@ -291,7 +287,11 @@ pub extern "C" fn call() {
     // entrypoints
     let add_item_entry_point = EntryPoint::new(
         ENTRY_POINT_ADD_ITEM,
-        vec![Parameter::new(ITEM_NAME, CLType::String), Parameter::new(TOKEN_ID, CLType::U64)],
+        vec![
+            Parameter::new(ITEM_NAME, CLType::String),
+            Parameter::new(TOKEN_ID, CLType::U64),
+            Parameter::new(RARITY, CLType::U64)
+        ],
         CLType::URef,
         EntryPointAccess::Public,
         EntryPointType::Contract
@@ -421,6 +421,13 @@ pub fn get_random_item_id(max_items: u64) -> u64 {
     let hash_number = bytes_to_u64(&hash_bytes);
 
     let item_id = hash_number % max_items;
+
+    // let item_owners = *runtime::get_key(ITEM_OWNERS).unwrap().as_uref().unwrap();
+
+    // let random_id = match storage::dictionary_get::<AccountHash>(item_owners, &item_id.to_string()) {
+    //     Ok(_) => { get_random_item_id(max_items) }
+    //     Err(_) => { item_id }
+    // };
 
     return item_id;
 }
