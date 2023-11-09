@@ -122,7 +122,7 @@ pub extern "C" fn purchase() {
     let lootbox_count: u64 = utils::read_from(LOOTBOX_COUNT);
     let max_lootboxes: u64 = utils::read_from(MAX_LOOTBOXES);
 
-    if lootbox_count > max_lootboxes {
+    if lootbox_count >= max_lootboxes {
         runtime::revert(Error::LootboxLimit);
     }
 
@@ -138,7 +138,7 @@ pub extern "C" fn purchase() {
             break;
         }
 
-        let item_id = get_random_item_id(max_items);
+        let item_id = get_random_item_id(max_items, item_count);
 
         storage::dictionary_put(item_owners, &item_id.to_string(), caller);
 
@@ -408,28 +408,34 @@ fn bytes_to_u64(bytes: &[u8]) -> u64 {
     result
 }
 
-pub fn get_random_item_id(max_items: u64) -> u64 {
+pub fn get_random_item_id(max_items: u64, item_count: u64) -> u64 {
     let now: u64 = runtime::get_blocktime().into();
     let mut sha3 = Sha3::v256();
-    let input = now.to_string();
+    let input = alloc::format!("{}{}", now, item_count);
 
     sha3.update(input.as_ref());
 
-    let mut hash_bytes = [0u8; 32]; // SHA-3-256 for 32 byte
+    let mut hash_bytes = [0u8; 32]; // SHA-3-256 for 32 bytes
     sha3.finalize(&mut hash_bytes);
 
     let hash_number = bytes_to_u64(&hash_bytes);
 
     let item_id = hash_number % max_items;
 
-    // let item_owners = *runtime::get_key(ITEM_OWNERS).unwrap().as_uref().unwrap();
+    let item_owners = *runtime::get_key(ITEM_OWNERS).unwrap().as_uref().unwrap();
 
-    // let random_id = match storage::dictionary_get::<AccountHash>(item_owners, &item_id.to_string()) {
-    //     Ok(_) => { get_random_item_id(max_items) }
-    //     Err(_) => { item_id }
-    // };
+    let exist: Option<AccountHash> = storage
+        ::dictionary_get::<AccountHash>(item_owners, &item_id.to_string())
+        .unwrap();
 
-    return item_id;
+    match exist {
+        Some(_) => {
+            return self::get_random_item_id(max_items, item_count + 1);
+        }
+        _ => {
+            return item_id;
+        }
+    }
 }
 
 pub fn get_approved(contract_hash: ContractHash, owner: Key, token_id: u64) -> Option<Key> {
