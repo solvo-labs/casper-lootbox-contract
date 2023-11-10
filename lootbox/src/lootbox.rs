@@ -95,9 +95,15 @@ pub extern "C" fn add_item() {
 
     let collection_hash: ContractHash = collection.into_hash().map(ContractHash::new).unwrap();
 
-    get_approved(collection_hash, caller.into(), token_id).unwrap_or_revert_with(
-        Error::NotApproved
+    let is_approved: bool = is_approved_for_all(
+        collection_hash,
+        caller.into(),
+        contract_address.into()
     );
+
+    if !is_approved {
+        runtime::revert(Error::NotApproved);
+    }
 
     // check owner is caller
     transfer(collection_hash, caller.into(), contract_address.into(), token_id);
@@ -438,16 +444,27 @@ pub fn get_random_item_id(max_items: u64, item_count: u64) -> u64 {
     }
 }
 
-pub fn get_approved(contract_hash: ContractHash, owner: Key, token_id: u64) -> Option<Key> {
-    runtime::call_contract::<Option<Key>>(
+pub fn is_approved_for_all(contract_hash: ContractHash, owner: Key, operator: Key) -> bool {
+    return runtime::call_contract::<bool>(
         contract_hash,
-        "get_approved",
+        "is_approved_for_all",
         runtime_args! {
-        "owner" => owner,
-        "token_id" => token_id
-      }
-    )
+            "token_owner" => owner,
+            "operator" => operator,
+        }
+    );
 }
+
+// pub fn get_approved(contract_hash: ContractHash, owner: Key, token_id: u64) -> Option<Key> {
+//     runtime::call_contract::<Option<Key>>(
+//         contract_hash,
+//         "get_approved",
+//         runtime_args! {
+//         "owner" => owner,
+//         "token_id" => token_id
+//       }
+//     )
+// }
 
 pub fn transfer(contract_hash: ContractHash, sender: Key, recipient: Key, token_id: u64) -> () {
     runtime::call_contract::<()>(
