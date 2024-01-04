@@ -205,6 +205,7 @@ pub extern "C" fn get_purse() {
 
 #[no_mangle]
 pub extern "C" fn init() {
+    check_admin_account();
     storage::new_dictionary(ITEM_OWNERS).unwrap_or_default();
     storage::new_dictionary(ITEMS).unwrap_or_default();
 }
